@@ -35,6 +35,13 @@ class MockClientResponse(ClientResponse):
             session=None,
         )
 
+    # The library `aiobotocore` relies on this in its `ClientResponseProxy`:
+    @property
+    def status_code(self):
+        if isinstance(self.status, int):
+            return self.status
+        return int(self.status, 10)
+
     async def json(self, *, encoding="utf-8", loads=json.loads, **kwargs):  # NOQA: E999
         stripped = self._body.strip()
         if not stripped:
@@ -59,6 +66,19 @@ class MockClientResponse(ClientResponse):
         return s
 
 
+def _to_bytes(obj) -> bytes:
+    if isinstance(obj, bytes):
+        return obj
+    return obj.encode()
+
+
+def _make_raw_headers(headers):  # -> Tuple[Tuple[bytes, bytes], ...]
+    result = []
+    for k, v in headers.items():
+        result.append((_to_bytes(k), _to_bytes(v)))
+    return tuple(result)
+
+
 def build_response(vcr_request, vcr_response, history):
     request_info = RequestInfo(
         url=URL(vcr_request.url),
@@ -71,6 +91,7 @@ def build_response(vcr_request, vcr_response, history):
     response._body = vcr_response["body"].get("string", b"")
     response.reason = vcr_response["status"]["message"]
     response._headers = _deserialize_headers(vcr_response["headers"])
+    response._raw_headers = _make_raw_headers(response._headers)
     response._history = tuple(history)
     # cookies
     for hdr in response.headers.getall(hdrs.SET_COOKIE, ()):
